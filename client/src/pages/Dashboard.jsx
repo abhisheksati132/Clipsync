@@ -562,7 +562,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen w-screen bg-dark-bg text-gray-200 overflow-x-hidden">
+    <div className="flex flex-col lg:flex-row min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden">
       
       {/* Mobile Top Navigation Header */}
       <header className="lg:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40">

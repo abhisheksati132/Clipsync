@@ -99,7 +99,7 @@ export default function ShareViewer() {
   };
 
   return (
-    <div className="relative flex min-h-screen w-screen items-center justify-center bg-dark-bg p-4 overflow-hidden">
+    <div className="relative flex min-h-screen w-full max-w-full items-center justify-center bg-dark-bg p-4 overflow-hidden">
       {/* Background ambient glows */}
       <div className="absolute top-1/4 left-1/4 -z-10 h-72 w-72 rounded-full bg-brand-500/10 blur-[80px]"></div>
       <div className="absolute bottom-1/4 right-1/4 -z-10 h-80 w-80 rounded-full bg-purple-500/10 blur-[100px]"></div>

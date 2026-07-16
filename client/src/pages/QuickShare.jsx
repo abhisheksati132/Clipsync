@@ -198,7 +198,7 @@ export default function QuickShare() {
   };
 
   return (
-    <div className="relative flex min-h-screen w-screen flex-col items-center justify-center bg-dark-bg p-4 overflow-x-hidden">
+    <div className="relative flex min-h-screen w-full max-w-full flex-col items-center justify-center bg-dark-bg p-4 overflow-x-hidden">
       {/* Background ambient glows */}
       <div className="absolute top-1/4 left-1/4 -z-10 h-72 w-72 rounded-full bg-brand-500/10 blur-[80px]"></div>
       <div className="absolute bottom-1/4 right-1/4 -z-10 h-80 w-80 rounded-full bg-purple-500/10 blur-[100px]"></div>
@@ -316,9 +316,9 @@ export default function QuickShare() {
 
       {/* STEP 3: Active Transfer Room */}
       {step === "active" && (
-        <div className="w-full max-w-4xl rounded-2xl border border-white/5 bg-white/[0.02] shadow-2xl backdrop-blur-xl flex flex-col h-[80vh]">
+        <div className="w-full max-w-4xl rounded-2xl border border-white/5 bg-white/[0.02] shadow-2xl backdrop-blur-xl flex flex-col h-[85vh] sm:h-[80vh]">
           {/* Room Header */}
-          <div className="border-b border-white/5 p-4 flex items-center justify-between bg-white/[0.01]">
+          <div className="border-b border-white/5 p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white/[0.01]">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
                 <Clipboard className="h-5 w-5" />

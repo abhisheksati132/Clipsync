@@ -24,7 +24,7 @@ export default function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-dark-bg">
+      <div className="flex h-screen w-full max-w-full items-center justify-center bg-dark-bg">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-500 border-t-transparent"></div>
       </div>
     );
