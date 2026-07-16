@@ -21,12 +21,12 @@ import {
   WifiOff,
   Share2,
   Lock,
-  Unlock,
   X,
   Shield,
   ShieldAlert,
   ShieldCheck,
-  Download
+  Download,
+  Menu
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -48,6 +48,9 @@ export default function Dashboard() {
   const [passphraseInput, setPassphraseInput] = useState("");
   const [useE2EE, setUseE2EE] = useState(false);
   const [decryptedFiles, setDecryptedFiles] = useState({}); // maps item.id to local decrypted blob URLs
+
+  // Mobile navigation state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // New item form state
   const [itemType, setItemType] = useState("text");
@@ -132,7 +135,6 @@ export default function Dashboard() {
           }
 
           if (!encryptionKey) {
-            // Placeholder if locked
             return {
               ...item,
               title: item.title,
@@ -146,8 +148,6 @@ export default function Dashboard() {
               const decryptedContent = await decryptText(item.content, encryptionKey);
               return { ...item, content: decryptedContent, locked: false };
             } else {
-              // Files are decrypted on-demand or pre-fetched.
-              // Trigger pre-fetch decryption in background
               triggerFileDecryption(item);
               return { ...item, locked: false };
             }
@@ -166,9 +166,8 @@ export default function Dashboard() {
     processItems();
   }, [rawItems, encryptionKey]);
 
-  // Fetch file from url, decrypt it, and create local blob url
   const triggerFileDecryption = async (item) => {
-    if (decryptedFiles[item.id]) return; // already decrypted
+    if (decryptedFiles[item.id]) return;
 
     try {
       const response = await fetch(item.file_url);
@@ -258,7 +257,6 @@ export default function Dashboard() {
 
     let bodyData = file;
     
-    // Encrypt file binary if E2EE is enabled
     if (keyToUse) {
       const fileBuffer = await file.arrayBuffer();
       const encryptedBuffer = await encryptFile(fileBuffer, keyToUse);
@@ -297,7 +295,6 @@ export default function Dashboard() {
     let fileUrlVal = "";
 
     try {
-      // Determine what to encrypt
       if (itemType === "text") {
         if (!textContent.trim()) {
           toast.error("Please enter some text");
@@ -324,7 +321,6 @@ export default function Dashboard() {
         toast.dismiss("upload");
       }
 
-      // Metadata object
       const newItem = {
         user_id: user.id,
         type: itemType,
@@ -338,7 +334,6 @@ export default function Dashboard() {
         newItem.title = `${title.trim() || "Code Snippet"} [${codeLanguage}]`;
       }
 
-      // If E2EE is enabled, encrypt text fields client-side
       if (useE2EE) {
         if (itemType === "text" || itemType === "code") {
           const ciphertext = await encryptText(contentVal, encryptionKey);
@@ -441,7 +436,7 @@ export default function Dashboard() {
 
   const getIcon = (type, locked) => {
     if (locked) {
-      return <Lock className="h-5 w-5 text-red-400 animate-pulse" />;
+      return <Lock className="h-5 w-5 text-red-400" />;
     }
     switch (type) {
       case "text":
@@ -455,136 +450,169 @@ export default function Dashboard() {
     }
   };
 
-  return (
-    <div className="flex min-h-screen w-screen bg-dark-bg text-gray-200">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-white/5 bg-white/[0.01] p-6 flex flex-col justify-between shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-500">
-              <Clipboard className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold tracking-tight text-white m-0">ClipSync</h2>
-              <span className="text-xs text-brand-500 font-semibold tracking-wider uppercase">Cloud Sync</span>
-            </div>
+  // Shared Sidebar Component for Desktop and Mobile
+  const SidebarContent = () => (
+    <div className="flex flex-col justify-between h-full">
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-500">
+            <Clipboard className="h-5 w-5" />
           </div>
-
-          {/* E2EE Passphrase Manager */}
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <Shield className={`h-5 w-5 ${encryptionKey ? "text-emerald-400" : "text-gray-500"}`} />
-              <span className="text-xs font-bold text-white uppercase tracking-wider">End-to-End Encryption</span>
-            </div>
-
-            {encryptionKey ? (
-              <div className="space-y-2">
-                <span className="text-[10px] text-emerald-400/90 font-medium flex items-center justify-center gap-1">
-                  <ShieldCheck className="h-3.5 w-3.5" /> E2EE Enabled
-                </span>
-                <button
-                  onClick={handleClearPassphrase}
-                  className="w-full rounded-lg bg-white/5 border border-white/10 py-1.5 text-[10px] font-semibold text-gray-400 hover:text-white transition-all cursor-pointer"
-                >
-                  Lock E2EE Keys
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <span className="text-[10px] text-gray-500 font-medium flex items-center justify-center gap-1">
-                  <ShieldAlert className="h-3.5 w-3.5" /> E2EE Inactive
-                </span>
-                <button
-                  onClick={() => {
-                    setPassphraseInput("");
-                    setShowPassphraseModal(true);
-                  }}
-                  className="w-full rounded-lg bg-brand-600/10 border border-brand-500/30 py-1.5 text-[10px] font-semibold text-brand-500 hover:bg-brand-600/20 transition-all cursor-pointer"
-                >
-                  Set Passphrase
-                </button>
-              </div>
-            )}
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-white m-0">ClipSync</h2>
+            <span className="text-xs text-brand-500 font-semibold tracking-wider uppercase">Cloud Sync</span>
           </div>
-
-          <nav className="space-y-1">
-            <button
-              onClick={() => setActiveTab("all")}
-              className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${
-                activeTab === "all" ? "bg-brand-500/15 text-brand-500 border-l-2 border-brand-500/30 pl-3.5" : "text-gray-400 hover:bg-white/[0.02] hover:text-white"
-              }`}
-            >
-              All Items
-            </button>
-            <button
-              onClick={() => setActiveTab("text")}
-              className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${
-                activeTab === "text" ? "bg-brand-500/15 text-brand-500 border-l-2 border-brand-500/30 pl-3.5" : "text-gray-400 hover:bg-white/[0.02] hover:text-white"
-              }`}
-            >
-              Texts
-            </button>
-            <button
-              onClick={() => setActiveTab("code")}
-              className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${
-                activeTab === "code" ? "bg-brand-500/15 text-brand-500 border-l-2 border-brand-500/30 pl-3.5" : "text-gray-400 hover:bg-white/[0.02] hover:text-white"
-              }`}
-            >
-              Code Snippets
-            </button>
-            <button
-              onClick={() => setActiveTab("files")}
-              className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${
-                activeTab === "files" ? "bg-brand-500/15 text-brand-500 border-l-2 border-brand-500/30 pl-3.5" : "text-gray-400 hover:bg-white/[0.02] hover:text-white"
-              }`}
-            >
-              Files & Images
-            </button>
-          </nav>
         </div>
 
-        <div className="border-t border-white/5 pt-6 space-y-4">
-          <div className="flex items-center justify-between rounded-lg bg-white/[0.02] border border-white/5 px-3 py-2">
-            <span className="text-xs text-gray-400 font-medium">Real-time status</span>
-            {connected ? (
-              <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
-                <Wifi className="h-3.5 w-3.5 animate-pulse" /> Online
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-xs text-red-400 font-semibold">
-                <WifiOff className="h-3.5 w-3.5" /> Offline
-              </span>
-            )}
+        {/* E2EE Passphrase Manager */}
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Shield className={`h-5 w-5 ${encryptionKey ? "text-emerald-400" : "text-gray-500"}`} />
+            <span className="text-xs font-bold text-white uppercase tracking-wider">End-to-End Encryption</span>
           </div>
 
-          {user && (
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 border border-white/10 text-gray-400">
-                <User className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-white truncate m-0">{user.user_metadata?.full_name || "User"}</p>
-                <p className="text-xs text-gray-500 truncate m-0">{user.email}</p>
-              </div>
+          {encryptionKey ? (
+            <div className="space-y-2">
+              <span className="text-[10px] text-emerald-400/90 font-medium flex items-center justify-center gap-1">
+                <ShieldCheck className="h-3.5 w-3.5" /> E2EE Enabled
+              </span>
+              <button
+                onClick={handleClearPassphrase}
+                className="w-full rounded-lg bg-white/5 border border-white/10 py-1.5 text-[10px] font-semibold text-gray-400 hover:text-white transition-all cursor-pointer"
+              >
+                Lock E2EE Keys
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <span className="text-[10px] text-gray-500 font-medium flex items-center justify-center gap-1">
+                <ShieldAlert className="h-3.5 w-3.5" /> E2EE Inactive
+              </span>
+              <button
+                onClick={() => {
+                  setPassphraseInput("");
+                  setShowPassphraseModal(true);
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full rounded-lg bg-brand-600/10 border border-brand-500/30 py-1.5 text-[10px] font-semibold text-brand-500 hover:bg-brand-600/20 transition-all cursor-pointer"
+              >
+                Set Passphrase
+              </button>
             </div>
           )}
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </button>
         </div>
+
+        <nav className="space-y-1">
+          {["all", "text", "code", "files"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => {
+                setActiveTab(tab);
+                setMobileMenuOpen(false);
+              }}
+              className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${
+                activeTab === tab 
+                  ? "bg-brand-500/15 text-brand-500 border-l-2 border-brand-500 pl-3.5" 
+                  : "text-gray-400 hover:bg-white/[0.02] hover:text-white"
+              }`}
+            >
+              {tab === "all" && "All Items"}
+              {tab === "text" && "Texts"}
+              {tab === "code" && "Code Snippets"}
+              {tab === "files" && "Files & Images"}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      <div className="border-t border-white/5 pt-6 space-y-4">
+        <div className="flex items-center justify-between rounded-lg bg-white/[0.02] border border-white/5 px-3 py-2">
+          <span className="text-xs text-gray-400 font-medium">Real-time status</span>
+          {connected ? (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
+              <Wifi className="h-3.5 w-3.5 animate-pulse" /> Online
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-red-400 font-semibold">
+              <WifiOff className="h-3.5 w-3.5" /> Offline
+            </span>
+          )}
+        </div>
+
+        {user && (
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5 border border-white/10 text-gray-400">
+              <User className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-white truncate m-0">{user.user_metadata?.full_name || "User"}</p>
+              <p className="text-xs text-gray-500 truncate m-0">{user.email}</p>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col lg:flex-row min-h-screen w-screen bg-dark-bg text-gray-200 overflow-x-hidden">
+      
+      {/* Mobile Top Navigation Header */}
+      <header className="lg:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
+            <Clipboard className="h-4 w-4" />
+          </div>
+          <span className="text-lg font-bold text-white tracking-tight">ClipSync</span>
+        </div>
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className="p-1.5 rounded-lg border border-white/10 bg-white/[0.02] text-gray-300 hover:text-white"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      </header>
+
+      {/* Desktop Sidebar (hidden on mobile) */}
+      <aside className="hidden lg:flex w-64 border-r border-white/5 bg-white/[0.01] p-6 flex-col justify-between shrink-0">
+        <SidebarContent />
       </aside>
 
+      {/* Mobile Drawer Overlay */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          {/* Backdrop */}
+          <div 
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+          ></div>
+          {/* Drawer body */}
+          <div className="relative w-64 bg-dark-card border-r border-white/5 p-6 flex flex-col justify-between h-full shadow-2xl animate-in slide-in-from-left duration-200">
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <SidebarContent />
+          </div>
+        </div>
+      )}
+
       {/* Main Workspace */}
-      <main className="flex-1 p-8 overflow-y-auto max-h-screen">
-        {/* Top Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto max-h-screen">
+        {/* Workspace Title & Search */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white m-0">Universal Clipboard</h1>
-            <p className="mt-1 text-sm text-gray-400">Instantly share notes, code, and files across all your devices.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white m-0">Universal Clipboard</h1>
+            <p className="mt-1 text-xs sm:text-sm text-gray-400">Instantly share notes, code, and files across all your devices.</p>
           </div>
 
           <div className="relative w-full md:w-80">
@@ -597,13 +625,13 @@ export default function Dashboard() {
               className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/40 focus:bg-white/[0.04]"
             />
           </div>
-        </header>
+        </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
           {/* Form Section */}
           <section className="xl:col-span-1">
-            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-6 backdrop-blur-xl">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 backdrop-blur-xl">
+              <h3 className="text-base sm:text-lg font-semibold text-white mb-4 flex items-center gap-2">
                 <Plus className="h-5 w-5 text-brand-500" /> Sync New Item
               </h3>
 
@@ -617,7 +645,7 @@ export default function Dashboard() {
                       setItemType(type);
                       setFile(null);
                     }}
-                    className={`rounded-lg py-1.5 text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
+                    className={`rounded-lg py-1.5 text-[10px] sm:text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
                       itemType === type ? "bg-brand-600 text-white shadow-md" : "text-gray-400 hover:text-white"
                     }`}
                   >
@@ -660,7 +688,7 @@ export default function Dashboard() {
                       value={textContent}
                       onChange={(e) => setTextContent(e.target.value)}
                       placeholder="Paste text here..."
-                      rows="6"
+                      rows="5"
                       className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-3 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30 font-sans resize-y"
                     ></textarea>
                   </div>
@@ -673,7 +701,7 @@ export default function Dashboard() {
                       <select
                         value={codeLanguage}
                         onChange={(e) => setCodeLanguage(e.target.value)}
-                        className="w-full rounded-xl border border-white/10 bg-dark-card py-2 px-3 text-sm text-white outline-none focus:border-brand-500/30"
+                        className="w-full rounded-xl border border-white/10 bg-dark-card py-2.5 px-3 text-sm text-white outline-none focus:border-brand-500/30"
                       >
                         <option value="javascript">JavaScript</option>
                         <option value="typescript">TypeScript</option>
@@ -692,7 +720,7 @@ export default function Dashboard() {
                         value={codeContent}
                         onChange={(e) => setCodeContent(e.target.value)}
                         placeholder="Paste code here..."
-                        rows="8"
+                        rows="6"
                         className="w-full rounded-xl border border-white/10 bg-white/[0.01] py-3 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30 font-mono resize-y"
                       ></textarea>
                     </div>
@@ -712,7 +740,7 @@ export default function Dashboard() {
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
                       <Plus className="h-8 w-8 text-gray-500 mb-2" />
-                      <p className="text-sm font-semibold text-gray-300">
+                      <p className="text-sm font-semibold text-gray-300 truncate max-w-[200px]">
                         {file ? file.name : "Click to select a file"}
                       </p>
                       <p className="text-xs text-gray-500 mt-1">
@@ -725,7 +753,7 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 hover:shadow-[0_0_15px_rgba(168,85,247,0.3)] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full rounded-xl bg-brand-600 py-3.5 text-sm font-semibold text-white transition-all hover:bg-brand-500 hover:shadow-[0_0_15px_rgba(168,85,247,0.3)] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {submitting ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
@@ -739,7 +767,7 @@ export default function Dashboard() {
 
           {/* List Section */}
           <section className="xl:col-span-2 space-y-4">
-            <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2 flex items-center gap-2">
               Sync History 
               <span className="text-xs font-normal text-gray-500 bg-white/5 border border-white/5 px-2 py-0.5 rounded-full">
                 {filteredItems.length}
@@ -761,15 +789,15 @@ export default function Dashboard() {
                 {filteredItems.map((item) => (
                   <div
                     key={item.id}
-                    className="group relative rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.02] p-5 transition-all"
+                    className="group relative rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.02] p-4 sm:p-5 transition-all"
                   >
                     <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 border border-white/10">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 border border-white/10">
                           {getIcon(item.type, item.locked)}
                         </div>
-                        <div>
-                          <h4 className="text-sm font-semibold text-white m-0 truncate max-w-md flex items-center gap-1.5">
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex items-center gap-1.5">
                             {item.title}
                             {item.is_encrypted && (
                               <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
@@ -783,7 +811,8 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Responsive Action Buttons (Always visible on mobile/touch, hover-visible on desktop) */}
+                      <div className="flex items-center gap-1.5 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                         {!item.locked && (
                           <button
                             onClick={() => {
@@ -841,7 +870,7 @@ export default function Dashboard() {
                       ) : (
                         <>
                           {item.type === "text" && (
-                            <p className="whitespace-pre-wrap font-sans bg-black/20 p-3 rounded-lg border border-white/5 max-h-40 overflow-y-auto">
+                            <p className="whitespace-pre-wrap font-sans bg-black/20 p-3 rounded-lg border border-white/5 max-h-40 overflow-y-auto leading-relaxed">
                               {item.content}
                             </p>
                           )}
@@ -878,24 +907,24 @@ export default function Dashboard() {
 
                           {item.type === "file" && (
                             <div className="flex items-center justify-between bg-black/25 px-4 py-3 rounded-xl border border-white/5">
-                              <span className="font-mono text-xs truncate max-w-xs">{item.content}</span>
+                              <span className="font-mono text-xs truncate max-w-[120px] sm:max-w-xs">{item.content}</span>
                               {item.is_encrypted ? (
                                 decryptedFiles[item.id] ? (
                                   <a
                                     href={decryptedFiles[item.id]}
                                     download={item.title}
-                                    className="text-xs font-semibold text-brand-500 hover:underline flex items-center gap-1"
+                                    className="text-xs font-semibold text-brand-500 hover:underline flex items-center gap-1 shrink-0 ml-2"
                                   >
-                                    <Download className="h-3.5 w-3.5" /> Download (Decrypted)
+                                    <Download className="h-3.5 w-3.5" /> Download
                                   </a>
                                 ) : (
-                                  <span className="text-[10px] text-gray-500 animate-pulse">Decrypting...</span>
+                                  <span className="text-[10px] text-gray-500 animate-pulse shrink-0 ml-2">Decrypting...</span>
                                 )
                               ) : (
                                 <a
                                   href={item.file_url}
                                   download
-                                  className="text-xs font-semibold text-brand-500 hover:underline"
+                                  className="text-xs font-semibold text-brand-500 hover:underline shrink-0 ml-2"
                                 >
                                   Download File
                                 </a>
