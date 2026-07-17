@@ -208,3 +208,68 @@ alter table clipboard_items add column if not exists workspace_id uuid reference
 alter table clipboard_items add column if not exists is_encrypted boolean default false;
 alter table clipboard_items add column if not exists self_destruct boolean default false;
 alter table clipboard_items add column if not exists expires_at timestamp with time zone;
+
+-- Create cli_tokens table
+create table if not exists cli_tokens (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  token_hash text unique not null,
+  name text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table cli_tokens enable row level security;
+
+create policy "Users can view their own tokens"
+  on cli_tokens for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert their own tokens"
+  on cli_tokens for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can delete their own tokens"
+  on cli_tokens for delete
+  using (auth.uid() = user_id);
+
+-- RPC Function to push items via CLI using personal access tokens
+create or replace function cli_push_item(token_val text, type_val text, title_val text, content_val text)
+returns uuid security definer as $$
+declare
+  matched_user_id uuid;
+  new_id uuid;
+begin
+  select t.user_id into matched_user_id from cli_tokens t where t.token_hash = encode(digest(token_val, 'sha256'), 'hex');
+  if not found then
+    raise exception 'Invalid CLI access token';
+  end if;
+  
+  insert into clipboard_items (user_id, type, title, content)
+  values (matched_user_id, type_val, title_val, content_val)
+  returning id into new_id;
+  
+  return new_id;
+end;
+$$ language plpgsql;
+
+-- RPC Function to retrieve latest clip via CLI using personal access tokens
+create or replace function cli_get_item(token_val text)
+returns table (id uuid, type text, title text, content text, created_at timestamp with time zone) security definer as $$
+declare
+  matched_user_id uuid;
+begin
+  select t.user_id into matched_user_id from cli_tokens t where t.token_hash = encode(digest(token_val, 'sha256'), 'hex');
+  if not found then
+    raise exception 'Invalid CLI access token';
+  end if;
+  
+  return query
+  select c.id, c.type, c.title, c.content, c.created_at
+  from clipboard_items c
+  where c.user_id = matched_user_id and c.workspace_id is null
+  order by c.created_at desc
+  limit 1;
+end;
+$$ language plpgsql;
+alter table clipboard_items add column if not exists self_destruct boolean default false;
+alter table clipboard_items add column if not exists expires_at timestamp with time zone;

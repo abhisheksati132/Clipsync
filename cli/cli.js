@@ -32,35 +32,77 @@ const question = (query) => new Promise((resolve) => rl.question(query, resolve)
 
 async function handleLogin() {
   console.log("🔒 Log in to ClipSync:");
-  const email = await question("Email: ");
-  const password = await question("Password: ");
-  rl.close();
+  console.log("You can log in using either your account credentials or a Personal Access Token (PAT).");
+  
+  const authMethod = await question("Choose Auth Method (1: Password, 2: Token): ");
+  
+  if (authMethod.trim() === "2") {
+    const token = await question("Enter Personal Access Token (PAT): ");
+    rl.close();
 
-  try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-      method: "POST",
-      headers: {
-        "apikey": ANON_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      console.error(`❌ Login failed: ${data.error_description || data.msg || "Invalid credentials"}`);
+    if (!token.trim()) {
+      console.error("❌ Token cannot be empty.");
       return;
     }
 
-    const config = {
-      access_token: data.access_token,
-      user_id: data.user.id,
-      email: data.user.email
-    };
-    saveConfig(config);
-    console.log(`✅ Logged in successfully as ${config.email}! Auth token saved locally.`);
-  } catch (err) {
-    console.error("❌ Network error:", err.message);
+    console.log("⏳ Verifying token...");
+    try {
+      // Validate token by making a dry-run RPC call
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/cli_get_item`, {
+        method: "POST",
+        headers: {
+          "apikey": ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ token_val: token.trim() })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        console.error(`❌ Token validation failed: ${err.message || res.statusText}`);
+        return;
+      }
+
+      const config = {
+        token: token.trim(),
+        email: "Token Authentication"
+      };
+      saveConfig(config);
+      console.log(`✅ Authenticated successfully using Personal Access Token!`);
+    } catch (err) {
+      console.error("❌ Network error:", err.message);
+    }
+  } else {
+    const email = await question("Email: ");
+    const password = await question("Password: ");
+    rl.close();
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: {
+          "apikey": ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        console.error(`❌ Login failed: ${data.error_description || data.msg || "Invalid credentials"}`);
+        return;
+      }
+
+      const config = {
+        access_token: data.access_token,
+        user_id: data.user.id,
+        email: data.user.email
+      };
+      saveConfig(config);
+      console.log(`✅ Logged in successfully as ${config.email}! Auth token saved locally.`);
+    } catch (err) {
+      console.error("❌ Network error:", err.message);
+    }
   }
 }
 
@@ -74,21 +116,40 @@ async function handlePush(content, customTitle) {
   const title = customTitle || `CLI Sync (${new Date().toLocaleTimeString()})`;
 
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/clipboard_items`, {
-      method: "POST",
-      headers: {
-        "apikey": ANON_KEY,
-        "Authorization": `Bearer ${config.access_token}`,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
-      },
-      body: JSON.stringify({
-        user_id: config.user_id,
-        type: "text",
-        title: title,
-        content: content
-      })
-    });
+    let res;
+    if (config.token) {
+      // Personal Access Token flow (using Postgres RPC)
+      res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/cli_push_item`, {
+        method: "POST",
+        headers: {
+          "apikey": ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          token_val: config.token,
+          type_val: "text",
+          title_val: title,
+          content_val: content
+        })
+      });
+    } else {
+      // Standard JWT access token flow
+      res = await fetch(`${SUPABASE_URL}/rest/v1/clipboard_items`, {
+        method: "POST",
+        headers: {
+          "apikey": ANON_KEY,
+          "Authorization": `Bearer ${config.access_token}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify({
+          user_id: config.user_id,
+          type: "text",
+          title: title,
+          content: content
+        })
+      });
+    }
 
     if (res.ok) {
       console.log(`☁️ Synced to ClipSync: "${title}"`);
@@ -109,12 +170,26 @@ async function handleGet() {
   }
 
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/clipboard_items?select=*&order=created_at.desc&limit=1`, {
-      headers: {
-        "apikey": ANON_KEY,
-        "Authorization": `Bearer ${config.access_token}`
-      }
-    });
+    let res;
+    if (config.token) {
+      // Personal Access Token flow (using Postgres RPC)
+      res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/cli_get_item`, {
+        method: "POST",
+        headers: {
+          "apikey": ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ token_val: config.token })
+      });
+    } else {
+      // Standard JWT access token flow
+      res = await fetch(`${SUPABASE_URL}/rest/v1/clipboard_items?select=*&order=created_at.desc&limit=1`, {
+        headers: {
+          "apikey": ANON_KEY,
+          "Authorization": `Bearer ${config.access_token}`
+        }
+      });
+    }
 
     const data = await res.json();
     if (!res.ok) {
@@ -122,11 +197,11 @@ async function handleGet() {
       return;
     }
 
-    if (data && data.length > 0) {
-      const item = data[0];
-      console.log(`\n📋 Title: ${item.title}`);
-      console.log(`🕒 Synced: ${new Date(item.created_at).toLocaleString()}`);
-      console.log(`🔒 Encrypted: ${item.is_encrypted ? "Yes" : "No"}`);
+    const itemsList = Array.isArray(data) ? data : [data];
+    if (itemsList && itemsList.length > 0 && itemsList[0].content) {
+      const item = itemsList[0];
+      console.log(`\n📋 Title: ${item.title || "CLI Sync"}`);
+      console.log(`🕒 Synced: ${item.created_at ? new Date(item.created_at).toLocaleString() : "Recently"}`);
       console.log("-----------------------------------------");
       console.log(item.content);
       console.log("-----------------------------------------\n");
@@ -169,7 +244,6 @@ if (command === "login") {
   }
   handlePush(content);
 } else {
-  // Check if stdin is being piped (e.g. echo "hello" | clipsync)
   let inputData = "";
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk) => {

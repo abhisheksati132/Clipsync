@@ -39,7 +39,12 @@ import {
   Clock,
   Laptop,
   CheckCircle,
-  HelpCircle
+  HelpCircle,
+  Hash,
+  Key,
+  Calendar,
+  CheckSquare,
+  Square
 } from "lucide-react";
 
 // --- IndexedDB Configuration for Offline Caching ---
@@ -153,11 +158,19 @@ const compressImage = (file) => {
             resolve(compressedFile);
           },
           "image/jpeg",
-          0.75 // 75% Quality
+          0.75 
         );
       };
     };
   });
+};
+
+// --- Helper to Compute SHA-256 Hash of Token ---
+const sha256 = async (ascii) => {
+  const msgBuffer = new TextEncoder().encode(ascii);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
 export default function Dashboard() {
@@ -167,6 +180,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [selectedTag, setSelectedTag] = useState(null); // Hashtag filter
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   // Socket State
@@ -182,6 +196,13 @@ export default function Dashboard() {
   const [useE2EE, setUseE2EE] = useState(false);
   const [decryptedFiles, setDecryptedFiles] = useState({});
 
+  // CLI Token Manager states
+  const [cliTokens, setCliTokens] = useState([]);
+  const [showCliTokenModal, setShowCliTokenModal] = useState(false);
+  const [newTokenName, setNewTokenName] = useState("");
+  const [generatedTokenVal, setGeneratedTokenVal] = useState("");
+  const [tokenSubmitting, setTokenSubmitting] = useState(false);
+
   // Mobile navigation state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -194,8 +215,8 @@ export default function Dashboard() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [workspaceSubmitting, setWorkspaceSubmitting] = useState(false);
 
-  // Advanced inputs: Expiration, Self-destruct
-  const [expiresInSeconds, setExpiresInSeconds] = useState("0"); // 0 = never
+  // Expiration & Self-destruct
+  const [expiresInSeconds, setExpiresInSeconds] = useState("0"); 
   const [selfDestruct, setSelfDestruct] = useState(false);
 
   // Speech Recognition States
@@ -208,7 +229,7 @@ export default function Dashboard() {
   // Rich Link Previews Map
   const [previews, setPreviews] = useState({});
 
-  // Connected clients count simulation
+  // Connected terminals simulation count
   const [connectedTerminals, setConnectedTerminals] = useState(1);
 
   // New item form state
@@ -229,6 +250,11 @@ export default function Dashboard() {
   const [generatedLink, setGeneratedLink] = useState("");
   const [generatingLink, setGeneratingLink] = useState(false);
 
+  // Canvas Network Map Refs
+  const canvasRef = useRef(null);
+  const particlesRef = useRef([]);
+  const animationFrameRef = useRef(null);
+
   const navigate = useNavigate();
   const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
@@ -242,13 +268,11 @@ export default function Dashboard() {
   // Keyboard Shortcuts Hook
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ctrl + K / Cmd + K to focus search
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
         const searchInput = document.querySelector('input[placeholder="Search history..."]');
         if (searchInput) searchInput.focus();
       }
-      // Alt + N to switch text inputs
       if (e.altKey && e.key === "n") {
         e.preventDefault();
         setItemType("text");
@@ -259,6 +283,152 @@ export default function Dashboard() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // HTML5 Canvas Orbital Map Loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    
+    // Scale for high DPI devices
+    const dpr = window.devicePixelRatio || 1;
+    const width = 300;
+    const height = 180;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.scale(dpr, dpr);
+
+    const devices = [
+      { name: "Browser", angle: 0, radius: 60, speed: 0.015, color: "#60cdff" },
+      { name: "Terminal", angle: (2 * Math.PI) / 3, radius: 60, speed: 0.012, color: "#10b981" },
+      { name: "Mobile", angle: (4 * Math.PI) / 3, radius: 60, speed: 0.018, color: "#f59e0b" }
+    ];
+
+    const drawOrbitalMap = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      const centerX = width / 2;
+      const centerY = height / 2;
+
+      // Draw orbital ring
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 60, 0, 2 * Math.PI);
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Draw Central Cloud
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 15, 0, 2 * Math.PI);
+      ctx.fillStyle = "rgba(0,120,212,0.15)";
+      ctx.strokeStyle = "#0078d4";
+      ctx.lineWidth = 2;
+      ctx.fill();
+      ctx.stroke();
+      
+      // Cloud label
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 9px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Cloud", centerX, centerY);
+
+      // Draw device nodes
+      devices.forEach((dev) => {
+        dev.angle += dev.speed;
+        const devX = centerX + Math.cos(dev.angle) * dev.radius;
+        const devY = centerY + Math.sin(dev.angle) * dev.radius;
+
+        // Draw node
+        ctx.beginPath();
+        ctx.arc(devX, devY, 8, 0, 2 * Math.PI);
+        ctx.fillStyle = dev.color;
+        ctx.fill();
+
+        // Label
+        ctx.fillStyle = "rgba(255,255,255,0.6)";
+        ctx.font = "8px monospace";
+        ctx.fillText(dev.name, devX, devY - 14);
+      });
+
+      // Draw active particles
+      particlesRef.current = particlesRef.current.filter((particle) => {
+        particle.t += particle.speed;
+        if (particle.t >= 1) {
+          if (particle.direction === "in") {
+            // Trigger outbound split particles when hit cloud
+            devices.forEach((dev, idx) => {
+              const devX = centerX + Math.cos(dev.angle) * dev.radius;
+              const devY = centerY + Math.sin(dev.angle) * dev.radius;
+              particlesRef.current.push({
+                x: centerX,
+                y: centerY,
+                targetX: devX,
+                targetY: devY,
+                t: 0,
+                speed: 0.05,
+                color: "#60cdff",
+                direction: "out"
+              });
+            });
+          }
+          return false; // delete active particle
+        }
+
+        // Linear interpolation
+        const currentX = particle.x + (particle.targetX - particle.x) * particle.t;
+        const currentY = particle.y + (particle.targetY - particle.y) * particle.t;
+
+        ctx.beginPath();
+        ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = particle.color;
+        ctx.shadowColor = particle.color;
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0; // reset shadow
+
+        return true;
+      });
+
+      animationFrameRef.current = requestAnimationFrame(drawOrbitalMap);
+    };
+
+    drawOrbitalMap();
+
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, []);
+
+  // Trigger orbital canvas sync beams
+  const triggerSyncAnimation = (fromDeviceName) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const width = 300;
+    const height = 180;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // Simulate sending node position
+    const angles = { Browser: 0, Terminal: (2 * Math.PI) / 3, Mobile: (4 * Math.PI) / 3 };
+    const angle = angles[fromDeviceName] || 0;
+    const startX = centerX + Math.cos(angle) * 60;
+    const startY = centerY + Math.sin(angle) * 60;
+
+    // Add incoming particle
+    particlesRef.current.push({
+      x: startX,
+      y: startY,
+      targetX: centerX,
+      targetY: centerY,
+      t: 0,
+      speed: 0.04,
+      color: "#0078d4",
+      direction: "in"
+    });
+  };
 
   // Drag and Drop File Handlers
   const handleDragEnter = (e) => {
@@ -293,7 +463,7 @@ export default function Dashboard() {
     }
   };
 
-  // Web Speech API Microphone Dictation
+  // Dictation transcribing
   const toggleSpeechDictation = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -341,7 +511,7 @@ export default function Dashboard() {
     }
   };
 
-  // Parse URLs and fetch Rich Link Previews
+  // Scrape OG previews
   const fetchLinkPreview = async (itemId, url) => {
     if (previews[itemId]) return;
     try {
@@ -425,7 +595,6 @@ export default function Dashboard() {
       if (session) {
         setUser(session.user);
         
-        // Auto-load passphrase if saved in sessionStorage
         const storedPassphrase = sessionStorage.getItem("clipsync_passphrase");
         if (storedPassphrase) {
           setPassphrase(storedPassphrase);
@@ -440,6 +609,7 @@ export default function Dashboard() {
 
         fetchItems(session.user.id);
         fetchWorkspaces(session.user.id);
+        fetchCliTokens(session.user.id);
 
         socketInstance = io(backendUrl);
         setSocket(socketInstance);
@@ -447,7 +617,6 @@ export default function Dashboard() {
         socketInstance.on("connect", () => {
           setConnected(true);
           socketInstance.emit("join-room", session.user.id);
-          // Simulate multiple terminals dynamically
           setConnectedTerminals(Math.floor(Math.random() * 2) + 2);
         });
 
@@ -457,12 +626,14 @@ export default function Dashboard() {
         });
 
         socketInstance.on("clip-sync", (data) => {
+          triggerSyncAnimation("Terminal");
           triggerBrowserNotification("Personal Clip Sync", "Your personal clipboard was updated!");
           toast.success("Personal Clipboard synced!", { icon: "🔄" });
           fetchItems(session.user.id);
         });
 
         socketInstance.on("workspace-clip-sync", (data) => {
+          triggerSyncAnimation("Mobile");
           triggerBrowserNotification("Team Sync", "A shared workspace clipboard was updated!");
           toast.success("Shared Workspace synced!", { icon: "👥" });
           fetchItems(session.user.id);
@@ -486,7 +657,6 @@ export default function Dashboard() {
     const processItems = async () => {
       const dbClips = await Promise.all(
         rawItems.map(async (item) => {
-          // Detect link previews dynamically
           if (item.type === "text" && !item.is_encrypted) {
             const urlRegex = /(https?:\/\/[^\s]+)/g;
             const match = item.content?.match(urlRegex);
@@ -509,7 +679,6 @@ export default function Dashboard() {
           try {
             if (item.type === "text" || item.type === "code") {
               const decryptedContent = await decryptText(item.content, encryptionKey);
-              // Check link preview for decrypted text
               const urlRegex = /(https?:\/\/[^\s]+)/g;
               const match = decryptedContent?.match(urlRegex);
               if (match) {
@@ -546,35 +715,111 @@ export default function Dashboard() {
     processItems();
   }, [rawItems, encryptionKey, activeWorkspace]);
 
-  // Trigger local OS notification
-  const triggerBrowserNotification = (title, body) => {
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(title, {
-        body,
-        icon: "/logo.svg"
-      });
+  // Handle Interactive Task Checklist Updates
+  const handleChecklistToggle = async (item, index, currentState) => {
+    let content = item.content;
+    const checkboxRegex = /-\s*\[([ xX])\]/g;
+    let occurrences = 0;
+    
+    // Replace the checkbox at the target index
+    const newContent = content.replace(checkboxRegex, (match, char) => {
+      if (occurrences === index) {
+        occurrences++;
+        return currentState ? "- [ ]" : "- [x]";
+      }
+      occurrences++;
+      return match;
+    });
+
+    // Update locally to prevent input stuttering
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, content: newContent } : i))
+    );
+
+    // Call Supabase update
+    try {
+      let finalContent = newContent;
+      if (item.is_encrypted) {
+        finalContent = await encryptText(newContent, encryptionKey);
+      }
+      
+      const { error } = await supabase
+        .from("clipboard_items")
+        .update({ content: finalContent })
+        .eq("id", item.id);
+
+      if (error) throw error;
+      
+      if (socket) {
+        if (activeWorkspace) {
+          socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
+        } else {
+          socket.emit("clip-update", { user_id: user.id });
+        }
+      }
+    } catch (err) {
+      toast.error("Failed to update checklist: " + err.message);
     }
   };
 
-  const triggerFileDecryption = async (item) => {
-    if (decryptedFiles[item.id]) return;
+  // Lightweight Markdown & Interactive Task list parser
+  const renderMarkdownContent = (item) => {
+    const text = item.content;
+    if (!text) return "";
 
-    try {
-      const response = await fetch(item.file_url);
-      const encryptedBuffer = await response.arrayBuffer();
-      const decryptedBuffer = await decryptFile(encryptedBuffer, encryptionKey);
+    // Regex checklist items: `- [ ] task` or `- [x] task`
+    const lines = text.split("\n");
+    let checkboxIndex = 0;
+
+    return lines.map((line, lineIdx) => {
+      const match = line.match(/^-\s*\[([ xX])\]\s*(.*)/);
+      if (match) {
+        const isChecked = match[1].toLowerCase() === "x";
+        const taskText = match[2];
+        const currentIdx = checkboxIndex;
+        checkboxIndex++;
+
+        return (
+          <div key={lineIdx} className="flex items-center gap-2 py-0.5 select-none font-sans">
+            <button
+              onClick={() => handleChecklistToggle(item, currentIdx, isChecked)}
+              className="text-brand-500 hover:text-brand-400 transition-all cursor-pointer"
+            >
+              {isChecked ? <CheckSquare className="h-4.5 w-4.5" /> : <Square className="h-4.5 w-4.5" />}
+            </button>
+            <span className={`text-xs ${isChecked ? "line-through text-gray-500" : "text-gray-300"}`}>
+              {taskText}
+            </span>
+          </div>
+        );
+      }
+
+      // Headers `# Header`
+      if (line.startsWith("# ")) {
+        return <h4 key={lineIdx} className="text-sm font-bold text-white mt-2 mb-1">{line.slice(2)}</h4>;
+      }
+      if (line.startsWith("## ")) {
+        return <h5 key={lineIdx} className="text-xs font-bold text-white mt-2 mb-1">{line.slice(3)}</h5>;
+      }
       
-      const blobType = item.type === "image" ? "image/*" : "application/octet-stream";
-      const blob = new Blob([decryptedBuffer], { type: blobType });
-      const localUrl = URL.createObjectURL(blob);
-      
-      setDecryptedFiles(prev => ({
-        ...prev,
-        [item.id]: localUrl
-      }));
-    } catch (err) {
-      console.error(`Failed to decrypt file for item ${item.id}:`, err);
-    }
+      // Standard lines
+      return <p key={lineIdx} className="m-0 py-0.5 leading-relaxed font-sans text-xs">{line}</p>;
+    });
+  };
+
+  // Compile smart Category Hashtags from all clips in history
+  const getAllHashtags = () => {
+    const tags = new Set();
+    items.forEach((item) => {
+      if (item.content && !item.locked) {
+        const hashtagRegex = /#([a-zA-Z0-9_\-]+)/g;
+        const matches = item.content.match(hashtagRegex);
+        if (matches) {
+          matches.forEach((t) => tags.add(t));
+        }
+      }
+    });
+    return Array.from(tags);
   };
 
   const fetchItems = async (userId) => {
@@ -608,6 +853,60 @@ export default function Dashboard() {
 
     if (data) {
       setWorkspaces(data);
+    }
+  };
+
+  const fetchCliTokens = async (userId) => {
+    const { data, error } = await supabase
+      .from("cli_tokens")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (data) {
+      setCliTokens(data);
+    }
+  };
+
+  const handleCreateCliToken = async (e) => {
+    e.preventDefault();
+    if (!newTokenName.trim() || !user) return;
+
+    setTokenSubmitting(true);
+    // Generate clean hex token: clipsync_pat_xxxx
+    const randArr = new Uint8Array(16);
+    crypto.getRandomValues(randArr);
+    const rawToken = "clipsync_pat_" + Array.from(randArr).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    try {
+      const hash = await sha256(rawToken);
+      const { error } = await supabase
+        .from("cli_tokens")
+        .insert([{ name: newTokenName.trim(), token_hash: hash, user_id: user.id }]);
+
+      if (error) throw error;
+
+      setGeneratedTokenVal(rawToken);
+      setNewTokenName("");
+      fetchCliTokens(user.id);
+      toast.success("CLI Access Token generated!");
+    } catch (err) {
+      toast.error("Failed to generate token: " + err.message);
+    } finally {
+      setTokenSubmitting(false);
+    }
+  };
+
+  const handleRevokeCliToken = async (tokenId) => {
+    const { error } = await supabase
+      .from("cli_tokens")
+      .delete()
+      .eq("id", tokenId);
+
+    if (error) {
+      toast.error("Failed to revoke: " + error.message);
+    } else {
+      toast.success("Token revoked permanently");
+      setCliTokens(cliTokens.filter(t => t.id !== tokenId));
     }
   };
 
@@ -670,34 +969,12 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => {
-    if (user) {
-      fetchItems(user.id);
-    }
-  }, [activeWorkspace, user]);
-
   const handleLogout = async () => {
     if (socket) socket.disconnect();
     sessionStorage.removeItem("clipsync_passphrase");
     await supabase.auth.signOut();
     toast.success("Logged out successfully");
     navigate("/");
-  };
-
-  const handleCopy = async (item) => {
-    navigator.clipboard.writeText(item.content);
-    toast.success("Copied to clipboard!", { icon: "📋" });
-
-    // Handle self-destruct triggers on copy
-    if (item.self_destruct && !item.isOffline) {
-      toast.loading("Self-destructing clipboard record...", { id: "selfdestruct" });
-      const { error } = await supabase.from("clipboard_items").delete().eq("id", item.id);
-      toast.dismiss("selfdestruct");
-      if (!error) {
-        toast.error("Clip self-destructed permanently!", { icon: "🔥" });
-        setRawItems((prev) => prev.filter((i) => i.id !== item.id));
-      }
-    }
   };
 
   const handleSetPassphrase = async (e) => {
@@ -736,15 +1013,12 @@ export default function Dashboard() {
     const filePath = `${userId}/${fileName}`;
 
     let bodyData = file;
-    
-    // Auto-compress image before upload
     if (file.type.startsWith("image/")) {
       toast.loading("Compressing image client-side...", { id: "compress" });
       bodyData = await compressImage(file);
       toast.dismiss("compress");
     }
 
-    // Encrypt file binary if E2EE is enabled
     if (keyToUse) {
       const fileBuffer = await bodyData.arrayBuffer();
       const encryptedBuffer = await encryptFile(fileBuffer, keyToUse);
@@ -812,7 +1086,6 @@ export default function Dashboard() {
         contentVal = file.name;
         toast.dismiss("upload");
 
-        // Run client-side Tesseract OCR on images
         if (itemType === "image" && file.type.startsWith("image/")) {
           toast.loading("Running Tesseract OCR on image...", { id: "ocr" });
           try {
@@ -829,13 +1102,11 @@ export default function Dashboard() {
         }
       }
 
-      // Expiry timestamp check
       let finalExpiresAt = null;
       if (expiresInSeconds !== "0") {
         finalExpiresAt = new Date(Date.now() + parseInt(expiresInSeconds) * 1000).toISOString();
       }
 
-      // Metadata object
       const newItem = {
         user_id: user.id,
         type: itemType,
@@ -852,7 +1123,6 @@ export default function Dashboard() {
         newItem.title = `${title.trim() || "Code Snippet"} [${codeLanguage}]`;
       }
 
-      // Encrypt text content if E2EE active
       if (useE2EE && (itemType === "text" || itemType === "code")) {
         const ciphertext = await encryptText(contentVal, encryptionKey);
         newItem.content = ciphertext;
@@ -876,6 +1146,7 @@ export default function Dashboard() {
       if (error) throw error;
 
       toast.success("Synced to cloud!");
+      triggerSyncAnimation("Browser");
       
       if (socket) {
         if (activeWorkspace) {
@@ -901,67 +1172,10 @@ export default function Dashboard() {
     }
   };
 
-  const handleDelete = async (id) => {
-    const { error } = await supabase
-      .from("clipboard_items")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      toast.error("Failed to delete: " + error.message);
-    } else {
-      toast.success("Deleted from cloud");
-      
-      if (socket) {
-        if (activeWorkspace) {
-          socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
-        } else {
-          socket.emit("clip-update", { user_id: user.id });
-        }
-      }
-
-      setRawItems(rawItems.filter((item) => item.id !== id));
-    }
-  };
-
-  const handleGenerateShareLink = async (e) => {
-    e.preventDefault();
-    if (!shareItem) return;
-
-    if (shareItem.is_encrypted) {
-      toast.error("End-to-End Encrypted items cannot be shared publicly.");
-      return;
-    }
-
-    setGeneratingLink(true);
-    const token = Math.random().toString(36).substring(2, 14);
-
-    try {
-      const { error } = await supabase.rpc("create_shared_link", {
-        item_id: shareItem.id,
-        token_val: token,
-        password_val: sharePassword,
-        expires_in_seconds: parseInt(shareExpiration)
-      });
-
-      if (error) throw error;
-
-      const link = `${window.location.origin}/share/${token}`;
-      setGeneratedLink(link);
-      toast.success("Shared link created!");
-    } catch (err) {
-      toast.error("Failed to create shared link: " + err.message);
-    } finally {
-      setGeneratingLink(false);
-    }
-  };
-
-  // Helper to compile activity values for the Contribution Calendar
   const getContributionGrid = () => {
     const calendarDays = [];
     const today = new Date();
     
-    // Group items by day YYYY-MM-DD
     const counts = {};
     rawItems.forEach(item => {
       const day = new Date(item.created_at).toISOString().split("T")[0];
@@ -989,6 +1203,11 @@ export default function Dashboard() {
       return true;
     })
     .filter((item) => {
+      // Smart tag filtration
+      if (!selectedTag) return true;
+      return item.content && !item.locked && item.content.toLowerCase().includes(selectedTag.toLowerCase());
+    })
+    .filter((item) => {
       const search = searchQuery.toLowerCase();
       return (
         item.title?.toLowerCase().includes(search) ||
@@ -996,26 +1215,10 @@ export default function Dashboard() {
       );
     });
 
-  const getIcon = (type, locked) => {
-    if (locked) {
-      return <Lock className="h-5 w-5 text-red-400" />;
-    }
-    switch (type) {
-      case "text":
-        return <FileText className="h-5 w-5 text-blue-400" />;
-      case "code":
-        return <Code className="h-5 w-5 text-emerald-400" />;
-      case "image":
-        return <ImageIcon className="h-5 w-5 text-cyan-400" />;
-      default:
-        return <FileIcon className="h-5 w-5 text-orange-400" />;
-    }
-  };
-
-  // Shared Sidebar Component for Desktop and Mobile
+  // Sidebar mapping elements
   const SidebarContent = () => (
-    <div className="flex flex-col justify-between h-full space-y-8">
-      <div className="space-y-6">
+    <div className="flex flex-col justify-between h-full space-y-6">
+      <div className="space-y-5">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-500">
             <Clipboard className="h-5 w-5" />
@@ -1026,9 +1229,27 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Sync Nodes Canvas Map */}
+        <div className="rounded-xl border border-white/5 bg-black/10 overflow-hidden flex flex-col items-center p-3 relative group">
+          <canvas ref={canvasRef} className="rounded" />
+          <span className="absolute top-2 left-2 text-[8px] font-bold text-gray-500 tracking-widest uppercase">Nodes Topology</span>
+        </div>
+
+        {/* CLI Tokens Button */}
+        <button
+          onClick={() => {
+            setGeneratedTokenVal("");
+            setShowCliTokenModal(true);
+            setMobileMenuOpen(false);
+          }}
+          className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white transition-all cursor-pointer border border-white/10 bg-white/[0.02]"
+        >
+          <Key className="h-3.5 w-3.5" /> Manage CLI Tokens
+        </button>
+
         {/* Workspace Manager */}
         <div className="space-y-2">
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest">Active Workspace</label>
+          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">Workspaces</label>
           <div className="space-y-1">
             <button
               onClick={() => handleWorkspaceChange(null)}
@@ -1056,12 +1277,36 @@ export default function Dashboard() {
                 setShowWorkspaceModal(true);
                 setMobileMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-brand-500 hover:text-brand-400 transition-all cursor-pointer border border-dashed border-brand-500/25 bg-brand-500/5"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-brand-500 hover:text-brand-400 transition-all cursor-pointer border border-dashed border-brand-500/25 bg-brand-500/5"
             >
               <Plus className="h-3.5 w-3.5" /> Create Workspace
             </button>
           </div>
         </div>
+
+        {/* Hashtags Filter Categories */}
+        {getAllHashtags().length > 0 && (
+          <div className="space-y-2">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1">
+              <Hash className="h-3.5 w-3.5 text-brand-500" /> Filter by Hashtags
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {getAllHashtags().map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                  className={`text-[9px] font-semibold px-2 py-1 rounded transition-all cursor-pointer ${
+                    selectedTag === tag 
+                      ? "bg-brand-600 text-white border border-brand-500" 
+                      : "bg-white/5 border border-white/5 text-gray-400 hover:text-white"
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* E2EE Passphrase Manager */}
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
@@ -1100,15 +1345,6 @@ export default function Dashboard() {
               </button>
             </div>
           )}
-        </div>
-
-        {/* Sync terminals stats */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.01] px-4 py-3 flex items-center gap-3">
-          <Laptop className="h-5 w-5 text-brand-500 animate-pulse" />
-          <div>
-            <h5 className="text-xs font-bold text-white m-0">Terminals Connected</h5>
-            <p className="text-[10px] text-gray-500 m-0 mt-0.5">{connectedTerminals} active devices listening</p>
-          </div>
         </div>
 
         <nav className="space-y-1">
@@ -1235,7 +1471,6 @@ export default function Dashboard() {
       {/* Main Workspace */}
       <main className="flex-1 p-4 sm:p-6 xl:p-8 overflow-y-auto max-h-screen">
         
-        {/* Connection status banner for offline queueing */}
         {!isOnline && (
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-6 flex items-center justify-center gap-2 text-xs font-semibold text-amber-500">
             <AlertTriangle className="h-4 w-4 shrink-0 animate-bounce" /> Currently Offline. Text/Code clips will be queued locally and auto-synced when online.
@@ -1333,7 +1568,7 @@ export default function Dashboard() {
                 {itemType === "text" && (
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-medium text-gray-400">Your Text</label>
+                      <label className="block text-xs font-medium text-gray-400">Your Text (supports Markdown)</label>
                       <button
                         type="button"
                         onClick={toggleSpeechDictation}
@@ -1470,7 +1705,7 @@ export default function Dashboard() {
               </form>
             </div>
 
-            {/* GitHub-style Contribution Calendar Grid */}
+            {/* Sync Activity Tracker */}
             <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6">
               <h4 className="text-xs font-extrabold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-brand-500" /> Sync Activity (30 Days)
@@ -1500,15 +1735,24 @@ export default function Dashboard() {
 
           {/* List Section */}
           <section className="xl:col-span-2 space-y-4">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-2 flex items-center gap-2">
-              Sync History 
-              <span className="text-xs font-normal text-gray-500 bg-white/5 border border-white/5 px-2 py-0.5 rounded-full">
-                {filteredItems.length}
-              </span>
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base sm:text-lg font-semibold text-white mb-2 flex items-center gap-2 m-0">
+                Sync History 
+                <span className="text-xs font-normal text-gray-500 bg-white/5 border border-white/5 px-2 py-0.5 rounded-full">
+                  {filteredItems.length}
+                </span>
+              </h3>
+              {selectedTag && (
+                <button
+                  onClick={() => setSelectedTag(null)}
+                  className="text-xs text-brand-500 hover:text-brand-400 font-semibold cursor-pointer"
+                >
+                  Clear Tag Filter: {selectedTag}
+                </button>
+              )}
+            </div>
 
             {loading ? (
-              // Shimmer Loading Skeleton
               <div className="space-y-4">
                 {[1, 2, 3].map((val) => (
                   <div key={val} className="rounded-xl border border-white/5 bg-white/[0.01] p-5 animate-pulse space-y-3">
@@ -1534,7 +1778,7 @@ export default function Dashboard() {
                 {filteredItems.map((item) => (
                   <div
                     key={item.id}
-                    className="group relative rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.02] hover:border-brand-500/20 hover:shadow-[0_0_15px_rgba(0,120,212,0.05)] p-4 sm:p-5 transition-all duration-300"
+                    className="group relative rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.02] hover:border-brand-500/20 hover:shadow-[0_0_15px_rgba(0,120,212,0.03)] p-4 sm:p-5 transition-all duration-300"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
@@ -1615,7 +1859,7 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Content display */}
+                    {/* Rendering item content */}
                     <div className="mt-4 text-sm text-gray-300">
                       {item.locked ? (
                         <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 flex items-center gap-3 text-red-400">
@@ -1628,9 +1872,9 @@ export default function Dashboard() {
                       ) : (
                         <>
                           {item.type === "text" && (
-                            <p className="whitespace-pre-wrap font-sans bg-black/20 p-3 rounded-lg border border-white/5 max-h-40 overflow-y-auto leading-relaxed">
-                              {item.content}
-                            </p>
+                            <div className="bg-black/20 p-3 rounded-lg border border-white/5 max-h-40 overflow-y-auto leading-relaxed">
+                              {renderMarkdownContent(item)}
+                            </div>
                           )}
 
                           {item.type === "code" && (
@@ -1662,7 +1906,6 @@ export default function Dashboard() {
                                   />
                                 )}
                               </div>
-                              {/* Display OCR extracted text if image content differs from file name */}
                               {item.content && item.content !== item.title && (
                                 <div className="p-3 bg-black/35 rounded-lg border border-white/5 text-[10px] font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
                                   <span className="text-[9px] font-bold text-cyan-400 block mb-1">🔍 EXTRACTED OCR TEXT:</span>
@@ -1699,13 +1942,12 @@ export default function Dashboard() {
                             </div>
                           )}
 
-                          {/* Render link previews if fetched */}
                           {previews[item.id] && (
                             <div className="mt-3 flex gap-3 p-3 bg-black/25 rounded-xl border border-white/5">
                               {previews[item.id].image && (
                                 <img src={previews[item.id].image} className="w-16 h-16 object-cover rounded-lg shrink-0 border border-white/10" />
                               )}
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <h5 className="font-semibold text-xs text-white truncate">{previews[item.id].title}</h5>
                                 <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">{previews[item.id].description}</p>
                                 <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[9px] text-brand-500 mt-1 font-semibold flex items-center gap-0.5 hover:underline">
@@ -1869,6 +2111,93 @@ export default function Dashboard() {
                 Activate E2EE Keys
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CLI Tokens Management Modal */}
+      {showCliTokenModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowCliTokenModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+              <Key className="h-5 w-5 text-brand-500" /> CLI Access Tokens
+            </h3>
+            <p className="text-xs text-gray-400 mb-6 font-sans">
+              Generate Personal Access Tokens (PAT) to log in to the Desktop CLI Companion securely without typing your account password.
+            </p>
+
+            <form onSubmit={handleCreateCliToken} className="space-y-4 border-b border-white/5 pb-6 mb-6">
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={newTokenName}
+                    onChange={(e) => setNewTokenName(e.target.value)}
+                    placeholder="Token name (e.g. My Laptop)"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-500 outline-none focus:border-brand-500/30"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={tokenSubmitting}
+                  className="rounded-xl bg-brand-600 hover:bg-brand-500 px-5 text-sm font-semibold text-white cursor-pointer"
+                >
+                  {tokenSubmitting ? "Generating..." : "Generate"}
+                </button>
+              </div>
+
+              {generatedTokenVal && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 space-y-2">
+                  <span className="text-[10px] font-bold text-emerald-400 block">⚠️ COPY THIS TOKEN NOW (It will not be displayed again):</span>
+                  <div className="flex items-center justify-between gap-3 bg-black/25 p-2.5 rounded border border-white/5">
+                    <span className="text-xs text-emerald-400 font-mono truncate select-all">{generatedTokenVal}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedTokenVal);
+                        toast.success("Token copied!");
+                      }}
+                      className="p-1 rounded bg-white/5 hover:bg-white/10 hover:text-emerald-400"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </form>
+
+            <div className="space-y-3 max-h-52 overflow-y-auto">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider m-0">Active Tokens</h4>
+              {cliTokens.length === 0 ? (
+                <p className="text-xs text-gray-500 m-0">No active access tokens. Generate one above to link your terminal.</p>
+              ) : (
+                <div className="space-y-2">
+                  {cliTokens.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between bg-white/[0.01] border border-white/5 p-3 rounded-xl">
+                      <div>
+                        <span className="text-xs font-bold text-white block">{t.name}</span>
+                        <span className="text-[10px] text-gray-500 block">Created: {new Date(t.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <button
+                        onClick={() => handleRevokeCliToken(t.id)}
+                        className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
+                        title="Revoke Token"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
