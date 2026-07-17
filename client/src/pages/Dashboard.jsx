@@ -944,6 +944,14 @@ export default function Dashboard() {
     }
   };
 
+  const handleLogout = async () => {
+    if (socket) socket.disconnect();
+    sessionStorage.removeItem("clipsync_passphrase");
+    await supabase.auth.signOut();
+    toast.success("Logged out successfully");
+    navigate("/");
+  };
+
   const handleCopy = async (item) => {
     navigator.clipboard.writeText(item.content);
     toast.success("Copied to clipboard!", { icon: "📋" });
