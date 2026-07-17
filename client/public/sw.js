@@ -77,3 +77,10 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
+// Message Event - Skip waiting when requested
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.action === "skipWaiting") {
+    self.skipWaiting();
+  }
+});
