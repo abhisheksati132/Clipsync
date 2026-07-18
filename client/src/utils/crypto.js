@@ -1,5 +1,15 @@
 // Cryptographic utilities using the native Web Crypto API
 
+// Safe base64 encoder — avoids stack overflow from .apply(null, largeArray)
+function uint8ToBase64(bytes) {
+  let binary = "";
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 // Derive a 256-bit AES-GCM key from a passphrase
 export async function deriveKey(passphrase) {
   const encoder = new TextEncoder();
@@ -49,8 +59,8 @@ export async function encryptText(text, key) {
   combined.set(iv, 0);
   combined.set(new Uint8Array(ciphertext), iv.length);
   
-  // Convert to Base64
-  return btoa(String.fromCharCode.apply(null, combined));
+  // Convert to Base64 safely
+  return uint8ToBase64(combined);
 }
 
 // Decrypt ciphertext content client-side
@@ -154,7 +164,7 @@ export async function encryptWorkspaceKey(rawKey, publicKey) {
     publicKey,
     rawKey
   );
-  return btoa(String.fromCharCode.apply(null, new Uint8Array(encrypted)));
+  return uint8ToBase64(new Uint8Array(encrypted));
 }
 
 // Decrypt a workspace key using a private key and return raw key buffer
@@ -191,8 +201,8 @@ export async function encryptPrivateKey(privateKey, symmetricKey) {
   combined.set(new Uint8Array(ciphertext), iv.length);
 
   return {
-    encryptedKey: btoa(String.fromCharCode.apply(null, combined)),
-    iv: btoa(String.fromCharCode.apply(null, iv))
+    encryptedKey: uint8ToBase64(combined),
+    iv: uint8ToBase64(iv)
   };
 }
 

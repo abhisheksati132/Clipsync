@@ -11,13 +11,16 @@ const server = http.createServer(app);
 // Initialize Socket.io
 const io = new Server(server, {
   cors: {
-    origin: "*", // In production, configure specific allowed origins
+    origin: process.env.ALLOWED_ORIGIN || "*",
     methods: ["GET", "POST"]
   }
 });
 
 // In-memory store for active account-free Quick Share sessions
 const quickSessions = new Set();
+
+// In-memory presence map: socket.id -> { user_id, email, device }
+const presenceMap = new Map();
 
 function generateSessionCode() {
   let code;
@@ -44,7 +47,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- Ultimate Upgrade: Workspace Room Sync ---
+  // --- Workspace Room Sync ---
   socket.on("join-workspace", (workspaceId) => {
     socket.join(workspaceId);
     console.log(`🏢 Client joined workspace sync room: ${workspaceId}`);
@@ -57,8 +60,34 @@ io.on("connection", (socket) => {
     }
   });
 
+  // --- Real-time Presence ---
+  socket.on("presence-join", ({ user_id, email, device }) => {
+    presenceMap.set(socket.id, { user_id, email, device });
+
+    // Broadcast updated presence list to user's room (all their devices)
+    const userPresence = Array.from(presenceMap.values()).filter(
+      (p) => p.user_id === user_id
+    );
+    io.to(user_id).emit("presence-list", userPresence);
+    console.log(`👁️ Presence joined: ${email} (${device})`);
+  });
+
+  // --- Typing Indicator ---
+  socket.on("typing", ({ name, workspace_id }) => {
+    if (workspace_id) {
+      // Broadcast to workspace room excluding sender
+      socket.to(workspace_id).emit("typing-broadcast", { name });
+    } else {
+      // Personal room — broadcast back to other devices of same user
+      const presence = presenceMap.get(socket.id);
+      if (presence?.user_id) {
+        socket.to(presence.user_id).emit("typing-broadcast", { name });
+      }
+    }
+  });
+
   // --- Phase 2: Account-Free Quick Share ---
-  
+
   // Request a new quick share session
   socket.on("request-quick-session", () => {
     const code = generateSessionCode();
@@ -90,7 +119,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Cleanup sessions when sockets disconnect
+  // Cleanup sessions and presence when sockets disconnect
   socket.on("disconnecting", () => {
     for (const room of socket.rooms) {
       if (quickSessions.has(room)) {
@@ -107,10 +136,21 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    // Clean up presence on disconnect
+    if (presenceMap.has(socket.id)) {
+      const { user_id } = presenceMap.get(socket.id);
+      presenceMap.delete(socket.id);
+
+      // Broadcast updated list to remaining devices
+      const remaining = Array.from(presenceMap.values()).filter(
+        (p) => p.user_id === user_id
+      );
+      io.to(user_id).emit("presence-list", remaining);
+    }
     console.log(`🔌 Client disconnected: ${socket.id}`);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Klipport server running on http://localhost:${PORT}`);
 });

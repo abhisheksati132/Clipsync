@@ -84,9 +84,13 @@ export default function ShareViewer() {
     fetchSharedItem(password);
   };
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard!", { icon: "📋" });
+  const handleCopy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard!", { icon: "📋" });
+    } catch {
+      toast.error("Failed to copy. Please copy manually.");
+    }
   };
 
   const getIcon = (type) => {

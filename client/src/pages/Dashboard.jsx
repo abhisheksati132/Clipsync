@@ -143,7 +143,7 @@ function highlightCode(code) {
   let escaped = code
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt bridge;");
+    .replace(/>/g, "&gt;");
 
   const keywords = /\b(const|let|var|function|return|import|export|from|def|class|if|else|for|while|try|catch|async|await|default|public|private|static|void|int|float|string|boolean|null|true|false)\b/g;
   const strings = /(["'`])(.*?)\1/g;
@@ -279,6 +279,7 @@ export default function Dashboard() {
 
   // Speech Recognition States
   const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef(null);
 
   // Drag and Drop overlay State
   const [isDragging, setIsDragging] = useState(false);
@@ -289,9 +290,6 @@ export default function Dashboard() {
 
   // Copy success indicator state
   const [copiedId, setCopiedId] = useState(null);
-
-  // Connected terminals simulation count
-  const [connectedTerminals, setConnectedTerminals] = useState(1);
 
   // New item form state
   const [itemType, setItemType] = useState("text");
@@ -392,8 +390,9 @@ export default function Dashboard() {
     }
 
     if (isRecording) {
-      if (window.klipport_recognition) {
-        window.klipport_recognition.stop();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
       }
       setIsRecording(false);
       toast.success("Voice recording stopped.");
@@ -417,16 +416,16 @@ export default function Dashboard() {
         }
       };
 
-      rec.onerror = (e) => {
-        console.error("Speech Recognition Error:", e);
+      rec.onerror = () => {
         setIsRecording(false);
       };
 
       rec.onend = () => {
         setIsRecording(false);
+        recognitionRef.current = null;
       };
 
-      window.klipport_recognition = rec;
+      recognitionRef.current = rec;
       rec.start();
     }
   };
@@ -518,8 +517,8 @@ export default function Dashboard() {
         }
 
         fetchItems(session.user.id);
-        fetchWorkspaces(session.user.id);
-        fetchCliTokens(session.user.id);
+        fetchWorkspaces();
+        fetchCliTokens();
 
         socketInstance = io(backendUrl);
         setSocket(socketInstance);
@@ -875,24 +874,28 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  const fetchWorkspaces = async (userId) => {
+  const fetchWorkspaces = async () => {
     const { data, error } = await supabase
       .from("workspaces")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (data) {
+    if (error) {
+      toast.error("Failed to load workspaces.");
+    } else if (data) {
       setWorkspaces(data);
     }
   };
 
-  const fetchCliTokens = async (userId) => {
+  const fetchCliTokens = async () => {
     const { data, error } = await supabase
       .from("cli_tokens")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (data) {
+    if (error) {
+      toast.error("Failed to load CLI tokens.");
+    } else if (data) {
       setCliTokens(data);
     }
   };
@@ -916,7 +919,7 @@ export default function Dashboard() {
 
       setGeneratedTokenVal(rawToken);
       setNewTokenName("");
-      fetchCliTokens(user.id);
+      fetchCliTokens();
       toast.success("CLI Access Token generated!");
     } catch (err) {
       toast.error("Failed to generate token: " + err.message);
@@ -955,7 +958,7 @@ export default function Dashboard() {
       toast.success("Workspace created!");
       setNewWorkspaceName("");
       setShowWorkspaceModal(false);
-      fetchWorkspaces(user.id);
+      fetchWorkspaces();
     } catch (err) {
       toast.error("Failed to create workspace: " + err.message);
     } finally {
@@ -1038,7 +1041,13 @@ export default function Dashboard() {
   };
 
   const handleCopy = async (item) => {
-    navigator.clipboard.writeText(item.content);
+    try {
+      await navigator.clipboard.writeText(item.content);
+    } catch {
+      toast.error("Clipboard access denied. Please copy manually.");
+      return;
+    }
+
     setCopiedId(item.id);
     setTimeout(() => setCopiedId(null), 1500);
 
@@ -1347,9 +1356,11 @@ export default function Dashboard() {
       if (!isOnline) {
         await saveOfflineClip(newItem);
         toast.success("Saved locally (Offline Queue)!", { icon: "📥" });
-        setRawItems(rawItems);
+        // Trigger re-render to show the newly queued offline clip
+        setRawItems((prev) => [...prev]);
         setTextContent("");
         setCodeContent("");
+        setFile(null);
         setTitle("");
         setSubmitting(false);
         return;
@@ -1377,11 +1388,13 @@ export default function Dashboard() {
       setTitle("");
       setSelfDestruct(false);
       setExpiresInSeconds("0");
-      
+
       fetchItems(user.id);
     } catch (err) {
       toast.dismiss("upload");
       toast.error(err.message || "Failed to add item");
+      // Reset file state on failure so user can re-select
+      setFile(null);
     } finally {
       setSubmitting(false);
     }

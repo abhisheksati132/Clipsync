@@ -152,7 +152,7 @@ export default function QuickShare() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      toast.error("Direct direct transfers are limited to 5MB. For larger files, please log in.");
+      toast.error("Direct transfers are limited to 5MB. For larger files, please log in.");
       return;
     }
 
@@ -188,9 +188,13 @@ export default function QuickShare() {
     reader.readAsDataURL(file);
   };
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard!", { icon: "📋" });
+  const handleCopy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard!", { icon: "📋" });
+    } catch {
+      toast.error("Failed to copy. Please copy manually.");
+    }
   };
 
   const getIcon = (type) => {
